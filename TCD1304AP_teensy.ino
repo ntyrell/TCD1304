@@ -1,11 +1,11 @@
 /* Original sketch available at:
  * https://hackaday.io/project/18126-dav5-v301-raman-spectrometer/log/53099-using-an-arduino-r3-to-power-the-tcd1304ap-ccd-chip
  * 
- * TCD1304 - Teensy 3.6
+ * TCD1304      - Teensy 3.6
  * ------------------------
- * pin 7 (ICG) - D2
- * pin 8 (MCLK) - D3
- * pin 6 (SH)- D4
+ * pin 3 (ICG)  - pin 6 (D4)
+ * pin 4 (MCLK) - pin 7 (D2)
+ * pin 5 (SH)   - pin 8 (D3)
  */
 #include <ADC.h>
 #include <ADC_util.h>
