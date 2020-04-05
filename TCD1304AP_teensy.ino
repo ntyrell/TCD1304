@@ -21,7 +21,7 @@
 #define MCLK (1<<2) // D2 (TCD1304 pin 4, teensy pin 7)
 #define SH (1<<3)   // D3 (TCD1304 pin 5, teensy pin 8)  
 
-#define F 2 // clock rate in MHz, 0.5 1 2 or 4 should work..
+#define F 4 // clock rate in MHz, 0.5 1 2 or 4 should work..
 
 IntervalTimer frameSampler;
 ADC *adc = new ADC(); // adc object
@@ -35,7 +35,7 @@ void setup(){
   pinMode(2, OUTPUT);
   CLOCK |= ICG; // Set the integration clear gate high.
   // Enable the serial port.
-  Serial.begin(115200);
+  Serial.begin(921600);
 
   // generate clock frequency of 1MHz on teensy pin 7
   analogWriteFrequency(7, F*1000000);
