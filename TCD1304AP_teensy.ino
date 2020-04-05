@@ -9,20 +9,17 @@
  */
 #include <ADC.h>
 #include <ADC_util.h>
-ADC *adc = new ADC(); // adc object
 
 #define PIXELS 3694 // total number of data samples including dummy outputs
-
 #define N 10 // number of subdivisions of framerate to expose for (electronic shutter)
-
 #define CLOCK GPIOD_PDOR  // use output of GPIOD on Teensy 3.6
-//#include <util/delay_basic.h>
 
 #define ICG (1<<4)  // D4 (TCD1304 pin 3, teensy pin 6)
 #define MCLK (1<<2) // D2 (TCD1304 pin 4, teensy pin 7)
 #define SH (1<<3)   // D3 (TCD1304 pin 5, teensy pin 8)  
 
 IntervalTimer frameSampler;
+ADC *adc = new ADC(); // adc object
 
 void setup(){
   // set clock pins to output
@@ -53,20 +50,19 @@ int c = 0;
 
 void triggerCCD(){
   // this routine sends the message to the CCD to start sending data. CCD will begin when ICG goes high
-    bool t = (c == 0);
-    
-    if (t) CLOCK &= ~ICG; // set ICG low
-    delayMicroseconds(1); // timing requirement (1000 ns max)
-    CLOCK |= SH;   // set SH high 
-    delayMicroseconds(1); // timing requirement (1000 ns max)
-    CLOCK &= ~SH;  // set SH low
+  bool t = (c == 0);
+  if (t) CLOCK &= ~ICG; // set ICG low
+  delayMicroseconds(1); // timing requirement (1000 ns max)
+  CLOCK |= SH;   // set SH high 
+  delayMicroseconds(1); // timing requirement (1000 ns max)
+  CLOCK &= ~SH;  // set SH low
+  if (t) {
     delayMicroseconds(5); // timing requirement (min 1000ns, typ 5000 ns)
-    if (t) {
-      CLOCK |= ICG;  // set ICG high
-      CCDsampler.begin(sampleCCD, 4); // try calling this here instead of triggering with external interrupt
-    }
-    c++;
-    if (c == N) c = 0; 
+    CLOCK |= ICG;  // set ICG high
+    CCDsampler.begin(sampleCCD, 4); // try calling this here instead of triggering with external interrupt
+  }
+  c++;
+  if (c == N) c = 0; 
 }
 
 uint16_t vals[PIXELS][2];
@@ -76,16 +72,16 @@ int f = 0;
 
 void sampleCCD(){
   // wait for conversion and sample ccd
-    while (!adc->adc0->isComplete()); // wait for conversion
-    vals[i][j] = (uint16_t)adc->adc0->analogReadContinuous();
-    i += 1;
-    if (i == PIXELS){
-      CCDsampler.end();
-      i = 0;
-      // probably trigger a switch to the other array to prevent overwriting, and trigger a send or something
-      j = !j;  
-      f = 1; 
-    }
+  while (!adc->adc0->isComplete()); // wait for conversion
+  vals[i][j] = (uint16_t)adc->adc0->analogReadContinuous();
+  i += 1;
+  if (i == PIXELS){
+    CCDsampler.end();
+    i = 0;
+    // probably trigger a switch to the other array to prevent overwriting, and trigger a send or something
+    j = !j;  
+    f = 1; 
+  }
 }
 
 void loop(){
@@ -98,5 +94,4 @@ void loop(){
     }
     Serial.println();
   }
-
 }
