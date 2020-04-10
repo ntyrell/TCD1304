@@ -1,3 +1,6 @@
+#include <Ethernet.h>
+#include <EthernetUdp.h>
+
 /* Original sketch available at:
  * https://hackaday.io/project/18126-dav5-v301-raman-spectrometer/log/53099-using-an-arduino-r3-to-power-the-tcd1304ap-ccd-chip
  * 
@@ -9,37 +12,106 @@
  */
 #include <ADC.h>
 #include <ADC_util.h>
+#include <SPI.h>        
 
 #define PIXELS 3648 // total number of data samples including dummy outputs
-#define N 1 // number of subdivisions of framerate to expose for (electronic shutter)
-#define CLOCK GPIOD_PDOR  // use output of GPIOD on Teensy 3.6
+#define N 100 // number of subdivisions of framerate to expose for (electronic shutter)
+#define CLOCK GPIOB_PDOR  // use output of GPIOB on Teensy 3.6
 
-#define ADCS (1<<7) // D7, teensy pin 5, ADC start signal pin
-#define ADCF (1<<0) // D7, teensy pin 2, ADC finish signal pin
+#define ADCS (1<<0) // B0, teensy pin 16, ADC start signal pin
+#define ADCF (1<<1) // B1, teensy pin 17, ADC finish signal pin
 
-#define ICG (1<<4)  // D4 (TCD1304 pin 3, teensy pin 6)
-#define MCLK (1<<2) // D2 (TCD1304 pin 4, teensy pin 7)
-#define SH (1<<3)   // D3 (TCD1304 pin 5, teensy pin 8)  
+#define ICG (1<<18)  // B18 (TCD1304 pin 3, teensy pin 29)
+#define MCLK (1<<19) // B19 (TCD1304 pin 4, teensy pin 30)
+#define SH (1<<10)   // B10 (TCD1304 pin 5, teensy pin 31)  
 
-#define F 4 // clock rate in MHz, 0.5 1 2 or 4 should work..
+#define F 1 // clock rate in MHz, 0.5 1 2 or 4 should work..
 
 IntervalTimer frameSampler;
 ADC *adc = new ADC(); // adc object
 
+byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+IPAddress ip(169, 254, 1, 1);
+IPAddress subnet(255, 255, 0, 0);
+EthernetUDP Udp;
+unsigned int localPort = 8888;
+char packetBuffer[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet,
+
 void setup(){
-  // set clock pins to output
-  pinMode(7, OUTPUT);
-  pinMode(8, OUTPUT);
-  pinMode(6, OUTPUT);
-  pinMode(5, OUTPUT);
-  pinMode(2, OUTPUT);
-  CLOCK |= ICG; // Set the integration clear gate high.
-  // Enable the serial port.
+    // Enable the serial port.
   Serial.begin(921600);
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
+  
+  pinMode(9, OUTPUT); // ethernet board reset pin
+  digitalWrite(9, HIGH);
+  delayMicroseconds(1000);
+  digitalWrite(9, LOW);
+  delayMicroseconds(1000);
+  digitalWrite(9, HIGH);
+
+  pinMode(10, OUTPUT);
+  Ethernet.init(10);
+  Ethernet.begin(mac, ip);
+  Ethernet.setSubnetMask(subnet); // teensy and rpi should have same subnet mask
+  Udp.begin(localPort);
+
+  if (Ethernet.hardwareStatus() == EthernetNoHardware) {
+    Serial.println("Ethernet shield was not found.");
+  }
+  else if (Ethernet.hardwareStatus() == EthernetW5100) {
+    Serial.println("W5100 Ethernet controller detected.");
+  }
+  else if (Ethernet.hardwareStatus() == EthernetW5200) {
+    Serial.println("W5200 Ethernet controller detected.");
+  }
+  else if (Ethernet.hardwareStatus() == EthernetW5500) {
+    Serial.println("W5500 Ethernet controller detected.");
+  }
+
+  int packetSize = 0;
+  while (packetSize == 0)
+  {
+    packetSize = Udp.parsePacket(); // wait
+  }
+  if (packetSize) 
+  {
+    Serial.print("Received packet of size ");
+    Serial.println(packetSize);
+    Serial.print("From ");
+    for (int i =0; i < 4; i++)
+    {
+      Serial.print(Udp.remoteIP()[i], DEC);
+      if (i < 3)
+      {
+        Serial.print(".");
+      }
+    }
+    Serial.print(", port ");
+    Serial.println(Udp.remotePort());
+
+    // read the packet into packetBufffer
+    Udp.read(packetBuffer,UDP_TX_PACKET_MAX_SIZE);
+    Serial.println("Contents:");
+    Serial.println(packetBuffer);
+  }
+
+  Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+  Udp.write("hello");
+  Udp.endPacket();
+  
+  // set clock pins to output
+  pinMode(29, OUTPUT);
+  pinMode(30, OUTPUT);
+  pinMode(31, OUTPUT);
+  pinMode(16, OUTPUT);
+  pinMode(17, OUTPUT);
+  CLOCK |= ICG; // Set the integration clear gate high.
 
   // generate clock frequency of 1MHz on teensy pin 7
-  analogWriteFrequency(7, F*1000000);
-  analogWrite(7, 124);
+  analogWriteFrequency(30, F*1000000);
+  analogWrite(30, 124);
 
   // make ADC very fast
   adc->adc0->setAveraging(1);  
@@ -93,14 +165,22 @@ void sampleCCD(){
   }
 }
 
+byte packet[2];
+
 void loop(){
   if (f == 1){
     f = 0;
+    Serial.println("send frame!");
     for (int ii = 32; ii < (32+PIXELS); ii++){
-      // could change this to only send the real pixels, not dummies too
-      Serial.print(vals[ii][!j]);
-      Serial.print(",");
+      //Serial.println("begin packet!");
+      Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+      packet[0] = lowByte(vals[!j][ii]);
+      packet[1] = highByte(vals[!j][ii]);
+      //Serial.println("write packet!");
+      Udp.write(packet, 2);
+      //Serial.println("end packet!");
+      Udp.endPacket();
     }
-    Serial.println();
+    //Serial.println();
   }
 }
