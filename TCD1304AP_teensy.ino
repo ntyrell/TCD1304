@@ -15,7 +15,7 @@
 #include <SPI.h>       
 
 #define PIXELS 3648 // total number of data samples including dummy outputs
-#define N 100 // number of subdivisions of framerate to expose for (electronic shutter)
+#define N 200 // number of subdivisions of framerate to expose for (electronic shutter)
 #define CLOCK GPIOB_PDOR  // use output of GPIOB on Teensy 3.6
 
 #define UDP_TX_PACKET_MAX_SIZE 3*PIXELS/2 // redefine max packet size
@@ -27,9 +27,10 @@
 #define MCLK (1<<19) // B19 (TCD1304 pin 4, teensy pin 30)
 #define SH (1<<10)   // B10 (TCD1304 pin 5, teensy pin 31)  
 
-#define F 4// clock rate in MHz, 0.5 1 2 or 4 should work..
+#define F 1// clock rate in MHz, 0.5 1 2 or 4 should work..
 
 IntervalTimer frameSampler;
+IntervalTimer CCDsampler;
 ADC *adc = new ADC(); // adc object
 
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
@@ -126,18 +127,19 @@ void setup(){
   analogWrite(30, 124);
 
   // make ADC very fast
-  adc->adc0->setAveraging(1);  
+  adc->adc0->setAveraging(4);  
   adc->adc0->setResolution(12);
   adc->adc0->setConversionSpeed(ADC_CONVERSION_SPEED::VERY_HIGH_SPEED);
   adc->adc0->setSamplingSpeed(ADC_SAMPLING_SPEED::VERY_HIGH_SPEED);
   adc->adc0->startContinuous(A14);   
 
   // to get longer exposure times, set N = 1 and add some extra time 
+  CCDsampler.priority(50); // needs high priority to execute more determinisitically?
+  CCDsampler.priority(51); 
   frameSampler.begin(triggerCCD, uspf / (float) N + 0.0);
   Serial.println("exiting setup");
 }
 
-IntervalTimer CCDsampler;
 int c = 0;
 
 void triggerCCD(){
@@ -149,9 +151,10 @@ void triggerCCD(){
   delayMicroseconds(1); // timing requirement (1000 ns max)
   CLOCK &= ~SH;  // set SH low
   if (t) {
-    CCDsampler.begin(sampleCCD, 4 / F); // it appears to take about 5us before the first ADC sample happens, but this appears to be related to the 5us delay..
+    // it appears to take about 5us before the first ADC sample happens, but this appears to be related to the 5us delay..
     delayMicroseconds(4); // timing requirement (min 1000ns, typ 5000 ns); making this the same as (or a multiple of?) the ADC sample period seems to best align the first ADC sample with the rising edge of ICD; adding the delay seems to block the timer from executing
     CLOCK |= ICG;  // set ICG high
+    CCDsampler.begin(sampleCCD, 4 / F); // with higher priority, this happens at right time..?
   }
   c++;
   if (c == N) c = 0; 
