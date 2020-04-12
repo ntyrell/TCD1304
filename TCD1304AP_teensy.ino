@@ -1,5 +1,5 @@
-#include <Ethernet.h>
-#include <EthernetUdp.h>
+#include <Ethernet3.h>
+#include <EthernetUdp3.h> 
 
 /* Original sketch available at:
  * https://hackaday.io/project/18126-dav5-v301-raman-spectrometer/log/53099-using-an-arduino-r3-to-power-the-tcd1304ap-ccd-chip
@@ -12,11 +12,13 @@
  */
 #include <ADC.h>
 #include <ADC_util.h>
-#include <SPI.h>        
+#include <SPI.h>       
 
 #define PIXELS 3648 // total number of data samples including dummy outputs
 #define N 100 // number of subdivisions of framerate to expose for (electronic shutter)
 #define CLOCK GPIOB_PDOR  // use output of GPIOB on Teensy 3.6
+
+#define UDP_TX_PACKET_MAX_SIZE PIXELS*2 // redefine max packet size
 
 #define ADCS (1<<0) // B0, teensy pin 16, ADC start signal pin
 #define ADCF (1<<1) // B1, teensy pin 17, ADC finish signal pin
@@ -52,11 +54,13 @@ void setup(){
   digitalWrite(9, HIGH);
 
   pinMode(10, OUTPUT);
-  Ethernet.init(10);
-  Ethernet.begin(mac, ip);
-  Ethernet.setSubnetMask(subnet); // teensy and rpi should have same subnet mask
+  Ethernet.setCsPin(10); 
+  Ethernet.init(1); // only initialize with 1 socket with 16k memory
+  Ethernet.begin(mac, ip, subnet);
+  //Ethernet.setSubnetMask(subnet); // teensy and rpi should have same subnet mask
   Udp.begin(localPort);
 
+/*
   if (Ethernet.hardwareStatus() == EthernetNoHardware) {
     Serial.println("Ethernet shield was not found.");
   }
@@ -69,10 +73,14 @@ void setup(){
   else if (Ethernet.hardwareStatus() == EthernetW5500) {
     Serial.println("W5500 Ethernet controller detected.");
   }
+*/
+  Serial.print("max packet size [bytes]: ");
+  Serial.println(UDP_TX_PACKET_MAX_SIZE);
 
   int packetSize = 0;
   while (packetSize == 0)
   {
+    //Serial.println("checking for packet!");
     packetSize = Udp.parsePacket(); // wait
   }
   if (packetSize) 
@@ -97,9 +105,9 @@ void setup(){
     Serial.println(packetBuffer);
   }
 
-  Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
-  Udp.write("hello");
-  Udp.endPacket();
+  //Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+  //Udp.write("hello");
+  //Udp.endPacket();
   
   // set clock pins to output
   pinMode(29, OUTPUT);
@@ -122,6 +130,7 @@ void setup(){
 
   // to get longer exposure times, set N = 1 and add some extra time 
   frameSampler.begin(triggerCCD, (float) (6 + (32+PIXELS+14)* 4.0/((float) F)) / (float) N + 0.0);
+  Serial.println("exiting setup");
 }
 
 IntervalTimer CCDsampler;
@@ -144,7 +153,8 @@ void triggerCCD(){
   if (c == N) c = 0; 
 }
 
-uint16_t vals[32+PIXELS][2];
+byte vals[2][2*PIXELS];
+//uint16_t vals[PIXELS][2];
 int i = 0;
 int j = 0;
 int f = 0;
@@ -153,34 +163,40 @@ void sampleCCD(){
   CLOCK ^= ADCS; // toggle ADC start read indicator pin
   // wait for conversion and sample ccd
   while (!adc->adc0->isComplete()); // wait for conversion
-  vals[i][j] = (uint16_t)adc->adc0->analogReadContinuous();
-  CLOCK ^= ADCF; // toggle ADC finish read indicator pin; scope measurements show that this reading takes about 0.5us! which means that I could get close to the max clock rate of 4MHz (update: I tried 1MHz sampling of a 10kHz sine wave and it has a few glitches.. might be too much
-  i += 1;
-  if (i == (32+PIXELS)){ // stop sampling before dummy outputs
-    CCDsampler.end();
-    i = 0;
-    // probably trigger a switch to the other array to prevent overwriting, and trigger a send or something
-    j = !j;  
-    f = 1; 
+  uint16_t sample = (uint16_t)adc->adc0->analogReadContinuous();
+  if (i >= 32) {
+    int ii = i - 32;
+    vals[j][2*ii] = lowByte(sample);
+    vals[j][2*ii+1] = highByte(sample);
+    //vals[i][j] = (uint16_t)adc->adc0->analogReadContinuous();
+    CLOCK ^= ADCF; // toggle ADC finish read indicator pin; scope measurements show that this reading takes about 0.5us! which means that I could get close to the max clock rate of 4MHz (update: I tried 1MHz sampling of a 10kHz sine wave and it has a few glitches.. might be too much
+    //i += 1;
+    if (ii == (PIXELS-1)){ // stop sampling before dummy outputs
+      CCDsampler.end();
+      i = 0;
+      // probably trigger a switch to the other array to prevent overwriting, and trigger a send or something
+      j = !j;  
+      f = 1; 
+    }
   }
+  i += 1;
 }
 
-byte packet[2];
+byte (*packet)[PIXELS*2];
+
 
 void loop(){
   if (f == 1){
+    Serial.println("sending frame!");
     f = 0;
-    Serial.println("send frame!");
-    for (int ii = 32; ii < (32+PIXELS); ii++){
-      //Serial.println("begin packet!");
-      Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
-      packet[0] = lowByte(vals[!j][ii]);
-      packet[1] = highByte(vals[!j][ii]);
-      //Serial.println("write packet!");
-      Udp.write(packet, 2);
-      //Serial.println("end packet!");
-      Udp.endPacket();
-    }
-    //Serial.println();
+    int ts = micros();
+    packet = &vals[!j];
+    Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+    Udp.write(*packet, PIXELS*2);
+    Udp.endPacket();
+    int tf = micros();
+    Serial.print("elapsed time: ");
+    Serial.println(tf - ts);
+    
   }
 }
