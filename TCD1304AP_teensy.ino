@@ -18,7 +18,7 @@
 #define N 100 // number of subdivisions of framerate to expose for (electronic shutter)
 #define CLOCK GPIOB_PDOR  // use output of GPIOB on Teensy 3.6
 
-#define UDP_TX_PACKET_MAX_SIZE PIXELS*2 // redefine max packet size
+#define UDP_TX_PACKET_MAX_SIZE 3*PIXELS/2 // redefine max packet size
 
 #define ADCS (1<<0) // B0, teensy pin 16, ADC start signal pin
 #define ADCF (1<<1) // B1, teensy pin 17, ADC finish signal pin
@@ -27,7 +27,7 @@
 #define MCLK (1<<19) // B19 (TCD1304 pin 4, teensy pin 30)
 #define SH (1<<10)   // B10 (TCD1304 pin 5, teensy pin 31)  
 
-#define F 1 // clock rate in MHz, 0.5 1 2 or 4 should work..
+#define F 4// clock rate in MHz, 0.5 1 2 or 4 should work..
 
 IntervalTimer frameSampler;
 ADC *adc = new ADC(); // adc object
@@ -40,6 +40,10 @@ unsigned int localPort = 8888;
 char packetBuffer[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet,
 
 void setup(){
+  float uspf = (float) (6 + (32+PIXELS+14)* 4.0/((float) F));
+  Serial.print("us per frame: ");
+  Serial.println(uspf);
+  
     // Enable the serial port.
   Serial.begin(921600);
   while (!Serial) {
@@ -129,7 +133,7 @@ void setup(){
   adc->adc0->startContinuous(A14);   
 
   // to get longer exposure times, set N = 1 and add some extra time 
-  frameSampler.begin(triggerCCD, (float) (6 + (32+PIXELS+14)* 4.0/((float) F)) / (float) N + 0.0);
+  frameSampler.begin(triggerCCD, uspf / (float) N + 0.0);
   Serial.println("exiting setup");
 }
 
@@ -153,27 +157,34 @@ void triggerCCD(){
   if (c == N) c = 0; 
 }
 
-byte vals[2][2*PIXELS];
+byte vals[2][3*PIXELS/2];
 //uint16_t vals[PIXELS][2];
 int i = 0;
 int j = 0;
 int f = 0;
+int ii = 0;
+
+uint16_t sample = 0;
+uint16_t sample_prev = 0;
 
 void sampleCCD(){
   CLOCK ^= ADCS; // toggle ADC start read indicator pin
   // wait for conversion and sample ccd
+  sample_prev = sample;
   while (!adc->adc0->isComplete()); // wait for conversion
-  uint16_t sample = (uint16_t)adc->adc0->analogReadContinuous();
-  if (i >= 32) {
-    int ii = i - 32;
-    vals[j][2*ii] = lowByte(sample);
-    vals[j][2*ii+1] = highByte(sample);
-    //vals[i][j] = (uint16_t)adc->adc0->analogReadContinuous();
-    CLOCK ^= ADCF; // toggle ADC finish read indicator pin; scope measurements show that this reading takes about 0.5us! which means that I could get close to the max clock rate of 4MHz (update: I tried 1MHz sampling of a 10kHz sine wave and it has a few glitches.. might be too much
-    //i += 1;
-    if (ii == (PIXELS-1)){ // stop sampling before dummy outputs
+  sample = (uint16_t)adc->adc0->analogReadContinuous();
+  CLOCK ^= ADCF;
+  if ((i > 32) && (i%2 == 1)) { // only odd indices
+
+    // bit shift and stuff to fit 2 samples into 3 bytes, MSB first
+    vals[j][ii] = highByte(sample_prev) << 4 | lowByte(sample_prev) >> 4;
+    vals[j][ii+1] = lowByte(sample_prev) << 4 | highByte(sample);
+    vals[j][ii+2] = lowByte(sample);
+    ii += 3;
+    if (ii >= (3*PIXELS/2)){ // stop sampling before dummy outputs
       CCDsampler.end();
       i = 0;
+      ii = 0;
       // probably trigger a switch to the other array to prevent overwriting, and trigger a send or something
       j = !j;  
       f = 1; 
@@ -182,8 +193,7 @@ void sampleCCD(){
   i += 1;
 }
 
-byte (*packet)[PIXELS*2];
-
+byte (*packet)[3*PIXELS/2];
 
 void loop(){
   if (f == 1){
@@ -192,7 +202,7 @@ void loop(){
     int ts = micros();
     packet = &vals[!j];
     Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
-    Udp.write(*packet, PIXELS*2);
+    Udp.write(*packet, 3*PIXELS/2);
     Udp.endPacket();
     int tf = micros();
     Serial.print("elapsed time: ");
