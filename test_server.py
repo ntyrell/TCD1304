@@ -1,3 +1,5 @@
+# LD_PRELOAD=/usr/lib/arm-linux-gnueabihf/libatomic.so.1 python3 test_server.py 
+
 from socket import *
 import struct
 import numpy as np
@@ -29,11 +31,11 @@ print("waiting to receive")
 
 
 def make_frames():
-	frame = np.zeros([365,365],dtype=np.uint16)
-	frame_chunk = np.zeros([365,50],dtype=np.uint16)
+	frame = np.zeros([365,649],dtype=np.uint16)
+	frame_chunk = np.zeros([365,7],dtype=np.uint16)
 	n = 0
 	while True:
-		for i in range(0,50):
+		for i in range(0,7):
 			data1,client = s.recvfrom(1472)
 			data2,client = s.recvfrom(1472)
 			data3,client = s.recvfrom(1472)
@@ -44,11 +46,11 @@ def make_frames():
 			print(len(data4))
 			data = data1 + data2 + data3 + data4
 			vals = read_uint12(data)
-			frame_chunk[:,i] = 2**16 - 2**4*vals[::10] # downsample 10x and scale to 16 bits
+			frame_chunk[:,i] = 2**16 - 2**4*vals[::10] # downsample 10x and scale to 16 bits and invert
 			print(i)
 		n += 1
-		frame = np.roll(frame,50,axis=1)
-		frame[:,:50] = np.flip(frame_chunk,axis=1)
+		frame = np.roll(frame,7,axis=1)
+		frame[:,:7] = np.flip(frame_chunk,axis=1)
 		q.put(frame)
 
 	
