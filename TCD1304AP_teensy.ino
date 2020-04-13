@@ -27,7 +27,7 @@
 #define MCLK (1<<19) // B19 (TCD1304 pin 4, teensy pin 30)
 #define SH (1<<10)   // B10 (TCD1304 pin 5, teensy pin 31)  
 
-#define F 1// clock rate in MHz, 0.5 1 2 or 4 should work..
+#define F 2// clock rate in MHz, 0.5 1 2 or 4 should work..
 
 IntervalTimer frameSampler;
 IntervalTimer CCDsampler;
@@ -127,7 +127,7 @@ void setup(){
   analogWrite(30, 124);
 
   // make ADC very fast
-  adc->adc0->setAveraging(4);  
+  adc->adc0->setAveraging(1);  
   adc->adc0->setResolution(12);
   adc->adc0->setConversionSpeed(ADC_CONVERSION_SPEED::VERY_HIGH_SPEED);
   adc->adc0->setSamplingSpeed(ADC_SAMPLING_SPEED::VERY_HIGH_SPEED);
