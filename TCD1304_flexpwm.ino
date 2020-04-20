@@ -1,5 +1,5 @@
 #define PIXELS 3648
-#define MCLK 1 // target TCD1304 clock rate in MHz; we will get as close as possible
+#define MCLK 4 // target TCD1304 clock rate in MHz; we will get as close as possible
 
 // calculate counter values such that an integer number of both 128x divided fbus cycles and MCLK cycles happen during each frame
 int CLKPMCLK = ceil((float)F_BUS_ACTUAL/(MCLK*1000000)); // f bus clock cycles per ccd clock cycles
